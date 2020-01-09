@@ -86,6 +86,24 @@ def proxy_handler(client_socket, remote_host, remote_port, receive_first):
 
             break
 
+def hexdump(src, length=16):
+    pass # needs work
+
+def receive_from(connection):
+    pass # needs work
+
+def request_handler(buffer): # packets destined for remote host
+
+    # perform desired packet modifications here
+
+    return buffer
+
+def response_handler(buffer): # packets destined for remote host
+
+    # perform desired packet modifications here
+
+    return buffer
+
 if __name__ == "__main__":
 
     # make sure command is what we're expecting
