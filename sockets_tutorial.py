@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+import types
 import socket
+import selectors
 from multiprocessing import Process
 
 """
@@ -50,42 +52,185 @@ close # disconnect
 
 """
 
-def echo_server():
+def echo_server(host, port):
 
-    HOST = '127.0.0.1' # "loopback" interface (i.e. localhost)
-    PORT = 65432 # non-privelaged port > 1023
+    def accept_wrapper(sock):
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT)) # bind s to the specified address
-        s.listen() # listen for connections to address
-        # code holds for connection
-        conn, addr = s.accept() # once connection detected, create new socket conn
-        with conn:
-            print('Server:', f'Incoming connection from: {addr[0]}:{addr[1]}') # the clients address
-            while True: # receive and echo back forever
-                data = conn.recv(1024) # receive
-                if not data: # or, at least, until there's no data
-                    break
-                print('Server:', f'Received "{data.decode()}" from the client.')
-                conn.sendall(data) # echo
+        conn, addr = sock.accept() # create connection socket
+        conn.setblocking(False) # don't hold on this socket
 
-def echo_client():
+        # show event to user
+        print('Server:', f'Incoming connection from: {addr[0]}:{addr[1]}')
 
-    TARGET_HOST = '127.0.0.1'
-    TARGET_PORT = 65432
+        # create custom type/class for selector data
+        # inb and outb are bit string attributes of the "data" class
+        data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((TARGET_HOST, TARGET_PORT))
-        send_str = 'Hello, World!'
-        s.sendall(send_str.encode())
-        data = s.recv(1024)
+        # event is a read or wrtie event (| is the or logical operator)
+        events = selectors.EVENT_READ | selectors.EVENT_WRITE
 
-    print('Client:', f'Received "{data.decode()}" from the server.')
+        # add connection socket to selector
+        sel.register(conn, events, data=data)
+
+    def service_connection(key, mask):
+
+        # get socket and its data
+        sock = key.fileobj
+        data = key.data
+
+        if mask & selectors.EVENT_READ:
+
+            recv_data = sock.recv(1024)
+
+            if recv_data:
+                data.outb += recv_data
+            else:
+                print('Server:',
+                      f'Closing connection from {data.addr[0]}:{data.addr[1]}')
+                # cleanup
+                sel.unregister(sock) # remove socket from selector
+                sock.close() # close socket
+
+        elif mask & selectors.EVENT_WRITE:
+
+            if data.outb:
+                print('Server:',
+                      f'Sending {data.outb.decode()} to {data.addr[0]}:{data.addr[1]}')
+                sent = sock.send(data.outb)
+                data.outb = data.outb[sent:]
+
+    # create selector
+    sel = selectors.DefaultSelector()
+
+    # create server listening socket (the main socket)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((host, port)) # bind s to the specified address
+    s.listen() # listen for connections to address
+    print('Server:', f'Listening on {host}:{port}')
+    # don't block application on calls to blocking methods
+    s.setblocking(False)
+
+    # add original listening socket to selector
+    sel.register(s, selectors.EVENT_READ, data=None) # initially no data
+
+    try:
+        while True:
+
+            events = sel.select(timeout=None) # list of (socket, event) tuples
+            # holds until socket(s) is(are) ready for I/O
+
+            for key, mask in events:
+                if key.data is None:
+                    # initiall listening socket should accept incoming connections
+                    accept_wrapper(key.fileobj)
+                else:
+                    # already accepted connection socket to a client
+                    service_connection(key, mask)
+    except KeyboardInterrupt:
+        print("Server:", "Caught keyboard interrupt, exiting!")
+    finally:
+        sel.close()
+
+def echo_client(target_host, target_port, n):
+
+    def start_connection(host, port, num_connections):
+
+        addr = (host, port)
+
+        for i in range(n): # create n connections to server
+
+            conn_id = i + 1 # set connection number
+
+            # tell user
+            print('Client:',
+                  f'Attempting connection {conn_id} to server.')
+
+            # create client side connection socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setblocking(False)
+            # 'connect_ex' no exception when blocking is False
+            s.connect_ex(addr)
+
+            # sore particular event in events (either read or write event)
+            events = selectors.EVENT_READ | selectors.EVENT_WRITE
+
+            # create custom data class
+            data = types.SimpleNamespace(conn_id=conn_id,
+                                         msg_total=sum(len(m) for m in messages),
+                                         recv_total=0,
+                                         messages=list(messages),
+                                         outb=b'')
+
+            # add connection socket to client selector
+            sel.register(s, events, data=data)
+
+    def service_connection(key, mask):
+
+        # get the socket and data from the args
+        sock = key.fileobj
+        data = key.data
+
+        if mask & selectors.EVENT_READ:
+
+            # get the data
+            recv_data = sock.recv(1024)
+
+            if recv_data: # if data was present
+                # show user
+                print('Client:',
+                      f'Received: {recv_data.decode()}')
+                # and update total bytes received
+                data.recv_total += len(recv_data)
+
+            if not recv_data or data.recv_total == data.msg_total:
+                # close connection
+                print('Client:',
+                       f'Received entire message, closing connection {data.conn_id}')
+                sel.unregister(sock)
+                sock.close()
+
+        if mask & selectors.EVENT_WRITE:
+
+            if not data.outb and data.messages:
+                data.outb = data.messages.pop(0)
+
+            if data.outb:
+                print('Client:',
+                       f'Sending {data.outb} to connection {data.conn_id}')
+                sent = sock.send(data.outb.encode())
+                data.outb = data.outb[sent:]
+
+    # create client selector
+    sel = selectors.DefaultSelector()
+    # create list of messaged to send to server
+    messages = ["Message 1", "Message 2", "Message 3"]
+
+    start_connection(target_host, target_port, n)
+
+    try:
+        while True:
+
+            events = sel.select(timeout=1)
+
+            if events:
+                for key, mask in events:
+                    service_connection(key, mask)
+            if not sel.get_map():
+                break
+    except KeyboardInterrupt:
+        print('Client:', 'Caught keyboard interrupt, exiting!')
+    finally:
+        sel.close()
+
+
 
 if __name__ == "__main__":
 
-    server_process = Process(target=echo_server)
+    host = '127.0.0.1'
+    port = 8080
+
+    server_process = Process(target=echo_server, args=(host, port))
     server_process.start()
 
-    client_process = Process(target=echo_client)
+    client_process = Process(target=echo_client, args=(host, port, 2))
     client_process.start()
