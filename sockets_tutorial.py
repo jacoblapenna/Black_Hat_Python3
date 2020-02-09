@@ -95,7 +95,7 @@ def echo_server(host, port):
 
             if data.outb:
                 print('Server:',
-                      f'Sending {data.outb.decode()} to {data.addr[0]}:{data.addr[1]}')
+                      f'Responding with "{data.outb.decode()}" to {data.addr[0]}:{data.addr[1]}')
                 sent = sock.send(data.outb)
                 data.outb = data.outb[sent:]
 
@@ -156,7 +156,7 @@ def echo_client(target_host, target_port, n):
 
             # create custom data class
             data = types.SimpleNamespace(conn_id=conn_id,
-                                         msg_total=sum(len(m) for m in messages),
+                                         msg_total=sum(len(m) for m in messages), # only possible with predefined messages
                                          recv_total=0,
                                          messages=list(messages),
                                          outb=b'')
@@ -178,7 +178,7 @@ def echo_client(target_host, target_port, n):
             if recv_data: # if data was present
                 # show user
                 print('Client:',
-                      f'Received: {recv_data.decode()}')
+                      f'Received: "{recv_data.decode()}"')
                 # and update total bytes received
                 data.recv_total += len(recv_data)
 
@@ -196,14 +196,14 @@ def echo_client(target_host, target_port, n):
 
             if data.outb:
                 print('Client:',
-                       f'Sending {data.outb} to connection {data.conn_id}')
+                       f'Sending "{data.outb}" to connection {data.conn_id}')
                 sent = sock.send(data.outb.encode())
                 data.outb = data.outb[sent:]
 
     # create client selector
     sel = selectors.DefaultSelector()
     # create list of messaged to send to server
-    messages = ["Message 1", "Message 2", "Message 3"]
+    messages = ["string 1", "string 2", "string 3"]
 
     start_connection(target_host, target_port, n)
 
@@ -234,3 +234,37 @@ if __name__ == "__main__":
 
     client_process = Process(target=echo_client, args=(host, port, 2))
     client_process.start()
+
+"""
+Example behaviour below. NOTE: order is not defined. Also,
+note that recv() does not have predictable streaming length.
+Suggest adding application layer to sockets that allows for
+headers with content descriptors so that both client and server
+know what to process with recv() in advance (i.e. HTTP).
+
+Server: Listening on 127.0.0.1:8080
+Client: Attempting connection 1 to server.
+Client: Attempting connection 2 to server.
+Server: Incoming connection from: 127.0.0.1:49270
+Server: Incoming connection from: 127.0.0.1:49272
+Client: Sending "string 1" to connection 1
+Client: Sending "string 1" to connection 2
+Server: Responding with "string 1" to 127.0.0.1:49270
+Client: Sending "string 2" to connection 1
+Client: Sending "string 2" to connection 2
+Server: Responding with "string 2" to 127.0.0.1:49270
+Client: Received: "string 1"
+Server: Responding with "string 1string 2" to 127.0.0.1:49272
+Client: Sending "string 3" to connection 1
+Client: Sending "string 3" to connection 2
+Server: Responding with "string 3" to 127.0.0.1:49270
+Client: Received: "string 2"
+Client: Received: "string 1string 2"
+Server: Responding with "string 3" to 127.0.0.1:49272
+Client: Received: "string 3"
+Client: Received entire message, closing connection 1
+Server: Closing connection from 127.0.0.1:49270
+Client: Received: "string 3"
+Client: Received entire message, closing connection 2
+Server: Closing connection from 127.0.0.1:49272
+"""
