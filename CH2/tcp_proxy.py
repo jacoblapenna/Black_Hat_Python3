@@ -15,9 +15,10 @@ def server_loop(local_host, local_port, remote_host, remote_port, receive_first)
 
     print(f"[*] Listening on {local_host}:{local_port}")
 
-    server.listen(5)
+    server.listen()
 
-    while True:
+    while True: # always listen for connections to accept
+
         client_socket, addr = server.accept()
 
         print(f"[==>] Received incoming connection from {addr[0]}:{addr[1]}")
@@ -45,7 +46,7 @@ def proxy_handler(client_socket, remote_host, remote_port, receive_first):
 
         # if we have data send it
         if len(remote_buffer):
-            pritn(f"[<==] Sending {len(remote_buffer)} bytes to localhost.")
+            print(f"[<==] Sending {len(remote_buffer)} bytes to localhost.")
             client_socket.send(remote_buffer) # may need to encode
 
     # start loop to: read from local, send to remote, send to local, repeat
@@ -87,7 +88,14 @@ def proxy_handler(client_socket, remote_host, remote_port, receive_first):
             break
 
 def hexdump(src, length=16):
-    pass # needs work
+    """ dump hex values """
+
+    results = []
+
+    if isinstance(src, unicode):
+        digits = 4
+    else:
+        digits = 2
 
 def receive_from(connection):
     pass # needs work
