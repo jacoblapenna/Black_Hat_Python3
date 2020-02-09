@@ -97,7 +97,7 @@ def hexdump(src, length=16):
     else:
         digits = 2
 
-    for i in 
+    for i in range(0, )
 
 def receive_from(connection):
     pass # needs work
