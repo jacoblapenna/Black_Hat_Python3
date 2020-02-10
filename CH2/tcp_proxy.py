@@ -92,12 +92,17 @@ def hexdump(src, length=16):
 
     results = []
 
-    if isinstance(src, unicode):
+    if isinstance(src, str):
         digits = 4
     else:
         digits = 2
 
-    for i in range(0, )
+    for i in range(0, len(src), length):
+
+        s = src[i:i + length]
+
+        hex = ' '.join([f"{ord(x):0 digits X}" for x in s])
+
 
 def receive_from(connection):
     pass # needs work
